@@ -58,6 +58,15 @@ DAYS_RU = {
 
 DAYS_ORDER = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота"]
 
+SLOT_TIMES = {
+    "I": ("08:30", "09:50"),
+    "II": ("10:00", "11:20"),
+    "III": ("11:30", "12:50"),
+    "IV": ("13:30", "14:50"),
+    "V": ("15:00", "16:20"),
+    "VI": ("16:30", "17:50"),
+}
+
 
 class TimetableParser:
     def __init__(self, username, password):
@@ -65,6 +74,10 @@ class TimetableParser:
         self.password = password
         self.session = requests.Session()
         self.logged_in = False
+        self.headers = {
+            "Referer": f"{BASE_URL}/main.php",
+            "X-Requested-With": "XMLHttpRequest",
+        }
 
     def login(self):
         self.session.get(BASE_URL)
@@ -72,112 +85,127 @@ class TimetableParser:
             f"{BASE_URL}/index.php",
             data={"username": self.username, "password": self.password, "submit": "Войти"},
         )
-        self.logged_in = "password" not in r.text.lower() or "main.php" in r.text.lower()
+        self.session.get(f"{BASE_URL}/main.php")
+        self.logged_in = r.url.endswith("main.php") or "main.php" in r.text.lower()
         return self.logged_in
 
     def get_schedule(self, faculty, course):
         r = self.session.post(
-            f"{BASE_URL}/process.php", data={"pagenum": "tdeduGraph_common"}
+            f"{BASE_URL}/pages.php",
+            data={"pagenum": "tdedu_graph_common"},
+            headers=self.headers,
         )
-        soup = BeautifulSoup(r.text, "html.parser")
+        form_path = r.text.strip()
+        if not form_path:
+            return []
 
-        form_action = None
-        form = soup.find("form")
-        if form and form.get("action"):
-            form_action = form["action"]
+        r2 = self.session.get(f"{BASE_URL}/{form_path}", headers=self.headers)
+        soup = BeautifulSoup(r2.text, "html.parser")
 
-        data = {"repProfId": faculty, "repCourseId": course}
+        btn = soup.find("input", {"id": "repGraph"})
+        inf = btn.get("inf", "0") if btn else "0"
 
-        week_select = soup.find("select", {"id": "repWeekId"})
+        prof_select = soup.find("select", {"id": "repProfId"})
+        prof_inf = prof_select.get("inf", "0") if prof_select else "0"
+
+        r3 = self.session.post(
+            f"{BASE_URL}/process.php",
+            data={"prof_id": faculty, "course_id": course, "inf": prof_inf},
+            headers=self.headers,
+        )
+        soup3 = BeautifulSoup(r3.text, "html.parser")
+        week_select = soup3.find("select", {"id": "repWeekId"})
+        week_id = "0"
         if week_select:
-            selected = week_select.find("option", {"selected": True})
-            if selected and selected.get("value"):
-                data["repWeekId"] = selected["value"]
-            else:
-                options = week_select.find_all("option")
-                for opt in options:
-                    if opt.get("value") and opt["value"] != "0":
-                        data["repWeekId"] = opt["value"]
-                        break
-
-        if "repWeekId" not in data:
-            data["repWeekId"] = "0"
-
-        data["repGraph"] = "Расписание"
-
-        url = f"{BASE_URL}/{form_action}" if form_action else f"{BASE_URL}/process.php"
-        r2 = self.session.post(url, data=data)
-        return self._parse_schedule_html(r2.text)
-
-    def _parse_schedule_html(self, html):
-        soup = BeautifulSoup(html, "html.parser")
-        schedule = []
-        tables = soup.find_all("table")
-
-        for table in tables:
-            rows = table.find_all("tr")
-            for row in rows:
-                cells = row.find_all("td")
-                if len(cells) >= 3:
-                    texts = [c.get_text(strip=True) for c in cells]
-                    row_text = " ".join(texts).lower()
-
-                    for day_name in DAYS_RU:
-                        if day_name in row_text:
-                            info = self._extract_lesson(cells)
-                            if info:
-                                info["day"] = day_name
-                                schedule.append(info)
-                            break
-
-        if not schedule:
-            schedule = self._parse_from_text(soup)
-
-        return schedule
-
-    def _extract_lesson(self, cells):
-        texts = [c.get_text(strip=True) for c in cells]
-        info = {}
-
-        for text in texts:
-            time_match = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})", text)
-            if time_match:
-                info["time_start"] = time_match.group(1).replace(".", ":")
-                info["time_end"] = time_match.group(2).replace(".", ":")
-                continue
-
-            if re.match(r"\d{1,2}[:.]\d{2}$", text):
-                if "time_start" not in info:
-                    info["time_start"] = text.replace(".", ":")
-                else:
-                    info["time_end"] = text.replace(".", ":")
-                continue
-
-            if any(kw in text.lower() for kw in ["аудитория", "ауд", "кабинет", "каб"]):
-                info["room"] = text
-                continue
-
-            if "subject" not in info and len(text) > 2 and not re.match(r"^\d+$", text):
-                info["subject"] = text
-
-        return info if "time_start" in info and "time_end" in info else None
-
-    def _parse_from_text(self, soup):
-        schedule = []
-        text = soup.get_text()
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
-        current_day = None
-
-        for line in lines:
-            for day_name in DAYS_RU:
-                if day_name in line.lower():
-                    current_day = day_name
+            for o in week_select.find_all("option"):
+                if o.get("value") and o["value"] != "0":
+                    week_id = o["value"]
                     break
 
-            if current_day:
-                time_match = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})", line)
-                if time_match:
-                    parts = line.split(time_match.group(0))
+        if week_id == "0":
+            return []
+
+        r4 = self.session.post(
+            f"{BASE_URL}/process.php",
+            data={"profid": faculty, "courseid": course, "weekid": week_id, "inf": inf},
+            headers=self.headers,
+        )
+
+        return self._parse_tbl_report(r4.text)
+
+    def _parse_tbl_report(self, html):
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table", {"id": "tblReport"})
+        if not table:
+            return []
+
+        schedule = []
+        rows = table.find_all("tr")
+
+        current_date = None
+        current_day_name = None
+        consumed_rows = 0
+
+        for row in rows:
+            cells = row.find_all("td")
+            if not cells:
+                continue
+
+            texts = [c.get_text(strip=True) for c in cells]
+
+            if consumed_rows > 0:
+                consumed_rows -= 1
+                slot_text = texts[0].strip().upper().replace(".", "") if texts else ""
+                if slot_text in SLOT_TIMES:
+                    t_start, t_end = SLOT_TIMES[slot_text]
+                    subject = texts[3] if len(texts) > 3 else ""
+                    room = texts[2] if len(texts) > 2 else ""
+                    teacher = texts[4] if len(texts) > 4 else ""
+                    if subject.strip():
+                        schedule.append({
+                            "day": current_day_name, "date": current_date,
+                            "time_start": t_start, "time_end": t_end,
+                            "subject": subject.strip(), "room": room.strip(),
+                            "teacher": teacher.strip(),
+                        })
+                continue
+
+            first_cell = cells[0]
+            rowspan = first_cell.get("rowspan")
+            if rowspan:
+                try:
+                    consumed_rows = int(rowspan) - 1
+                except ValueError:
+                    consumed_rows = 0
+
+                date_text = texts[1] if len(texts) > 1 else texts[0]
+                m = re.search(r"(\d{2}\.\d{2}\.\d{4})", date_text)
+                if m:
+                    try:
+                        dt = datetime.strptime(m.group(1), "%d.%m.%Y")
+                        current_date = dt
+                        current_day_name = [
+                            "понедельник", "вторник", "среда",
+                            "четверг", "пятница", "суббота", "воскресенье"
+                        ][dt.weekday()]
+                    except ValueError:
+                        pass
+
+                slot_text = texts[2].strip().upper().replace(".", "") if len(texts) > 2 else ""
+                if slot_text in SLOT_TIMES:
+                    t_start, t_end = SLOT_TIMES[slot_text]
+                    subject = texts[5] if len(texts) > 5 else ""
+                    room = texts[4] if len(texts) > 4 else ""
+                    teacher = texts[6] if len(texts) > 6 else ""
+                    if subject.strip():
+                        schedule.append({
+                            "day": current_day_name, "date": current_date,
+                            "time_start": t_start, "time_end": t_end,
+                            "subject": subject.strip(), "room": room.strip(),
+                            "teacher": teacher.strip(),
+                        })
+
+        return schedule
                     subject = parts[0].strip() if parts else ""
                     schedule.append({
                         "day": current_day,

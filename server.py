@@ -45,9 +45,13 @@ FACULTIES = {
 
 COURSES = {"1": "1 курс", "2": "2 курс", "3": "3 курс", "4": "4 курс"}
 
-DAYS_RU = {
-    "понедельник": 0, "вторник": 1, "среда": 2,
-    "четверг": 3, "пятница": 4, "суббота": 5,
+SLOT_TIMES = {
+    "I": ("08:30", "09:50"),
+    "II": ("10:00", "11:20"),
+    "III": ("11:30", "12:50"),
+    "IV": ("13:30", "14:50"),
+    "V": ("15:00", "16:20"),
+    "VI": ("16:30", "17:50"),
 }
 
 
@@ -67,6 +71,10 @@ class TimetableParser:
         self.username = username
         self.password = password
         self.session = requests.Session()
+        self.headers = {
+            "Referer": f"{BASE_URL}/main.php",
+            "X-Requested-With": "XMLHttpRequest",
+        }
 
     def login(self):
         self.session.get(BASE_URL)
@@ -74,112 +82,144 @@ class TimetableParser:
             f"{BASE_URL}/index.php",
             data={"username": self.username, "password": self.password, "submit": "Войти"},
         )
-        return "password" not in r.text.lower() or "main.php" in r.text.lower()
+        self.session.get(f"{BASE_URL}/main.php")
+        return r.url.endswith("main.php") or "main.php" in r.text.lower()
 
     def get_schedule(self, faculty, course):
-        r = self.session.post(f"{BASE_URL}/process.php", data={"pagenum": "tdeduGraph_common"})
-        soup = BeautifulSoup(r.text, "html.parser")
+        r = self.session.post(
+            f"{BASE_URL}/pages.php",
+            data={"pagenum": "tdedu_graph_common"},
+            headers=self.headers,
+        )
+        form_path = r.text.strip()
+        if not form_path:
+            return [], {}
 
-        form_action = None
-        form = soup.find("form")
-        if form and form.get("action"):
-            form_action = form["action"]
+        r2 = self.session.get(f"{BASE_URL}/{form_path}", headers=self.headers)
+        soup = BeautifulSoup(r2.text, "html.parser")
 
-        data = {"repProfId": faculty, "repCourseId": course}
+        btn = soup.find("input", {"id": "repGraph"})
+        inf = btn.get("inf", "0") if btn else "0"
 
-        week_select = soup.find("select", {"id": "repWeekId"})
+        prof_select = soup.find("select", {"id": "repProfId"})
+        prof_inf = prof_select.get("inf", "0") if prof_select else "0"
+
+        r3 = self.session.post(
+            f"{BASE_URL}/process.php",
+            data={"prof_id": faculty, "course_id": course, "inf": prof_inf},
+            headers=self.headers,
+        )
+        soup3 = BeautifulSoup(r3.text, "html.parser")
+        week_select = soup3.find("select", {"id": "repWeekId"})
+        week_id = "0"
+        week_label = ""
         if week_select:
-            selected = week_select.find("option", {"selected": True})
-            if selected and selected.get("value"):
-                data["repWeekId"] = selected["value"]
-            else:
-                for opt in week_select.find_all("option"):
-                    if opt.get("value") and opt["value"] != "0":
-                        data["repWeekId"] = opt["value"]
-                        break
-
-        if "repWeekId" not in data:
-            data["repWeekId"] = "0"
-
-        data["repGraph"] = "Расписание"
-        url = f"{BASE_URL}/{form_action}" if form_action else f"{BASE_URL}/process.php"
-        r2 = self.session.post(url, data=data)
-        return self._parse(r2.text)
-
-    def _parse(self, html):
-        soup = BeautifulSoup(html, "html.parser")
-        schedule = []
-
-        for table in soup.find_all("table"):
-            for row in table.find_all("tr"):
-                cells = row.find_all("td")
-                if len(cells) >= 3:
-                    texts = [c.get_text(strip=True) for c in cells]
-                    row_text = " ".join(texts).lower()
-
-                    for day_name in DAYS_RU:
-                        if day_name in row_text:
-                            info = self._extract(cells)
-                            if info:
-                                info["day"] = day_name
-                                schedule.append(info)
-                            break
-
-        if not schedule:
-            schedule = self._parse_text(soup)
-
-        return schedule
-
-    def _extract(self, cells):
-        texts = [c.get_text(strip=True) for c in cells]
-        info = {}
-
-        for text in texts:
-            m = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})", text)
-            if m:
-                info["time_start"] = m.group(1).replace(".", ":")
-                info["time_end"] = m.group(2).replace(".", ":")
-                continue
-            if re.match(r"\d{1,2}[:.]\d{2}$", text):
-                key = "time_start" if "time_start" not in info else "time_end"
-                info[key] = text.replace(".", ":")
-                continue
-            if any(k in text.lower() for k in ["аудитория", "ауд", "кабинет", "каб"]):
-                info["room"] = text
-                continue
-            if "subject" not in info and len(text) > 2 and not re.match(r"^\d+$", text):
-                info["subject"] = text
-
-        return info if "time_start" in info and "time_end" in info else None
-
-    def _parse_text(self, soup):
-        schedule = []
-        current_day = None
-        for line in soup.get_text().split("\n"):
-            line = line.strip()
-            if not line:
-                continue
-            for d in DAYS_RU:
-                if d in line.lower():
-                    current_day = d
+            for o in week_select.find_all("option"):
+                if o.get("value") and o["value"] != "0":
+                    week_id = o["value"]
+                    week_label = o.text.strip()
                     break
-            if current_day:
-                m = re.search(r"(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})", line)
+
+        meta = {"week_id": week_id, "week_label": week_label}
+        if week_id == "0":
+            return [], meta
+
+        r4 = self.session.post(
+            f"{BASE_URL}/process.php",
+            data={"profid": faculty, "courseid": course, "weekid": week_id, "inf": inf},
+            headers=self.headers,
+        )
+
+        schedule = self._parse_tbl_report(r4.text)
+        return schedule, meta
+
+    def _parse_tbl_report(self, html):
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table", {"id": "tblReport"})
+        if not table:
+            return []
+
+        schedule = []
+        rows = table.find_all("tr")
+
+        current_date = None
+        current_day_name = None
+        current_rowspan = 0
+        consumed_rows = 0
+
+        for row in rows:
+            cells = row.find_all("td")
+            if not cells:
+                continue
+
+            texts = [c.get_text(strip=True) for c in cells]
+
+            if consumed_rows > 0:
+                consumed_rows -= 1
+                slot_text = texts[0] if texts else ""
+                slot_text = slot_text.strip().upper().replace(".", "")
+                if slot_text in SLOT_TIMES:
+                    t_start, t_end = SLOT_TIMES[slot_text]
+                    subject = texts[3] if len(texts) > 3 else ""
+                    room = texts[2] if len(texts) > 2 else ""
+                    teacher = texts[4] if len(texts) > 4 else ""
+                    if subject and subject.strip():
+                        schedule.append({
+                            "day": current_day_name,
+                            "date": current_date,
+                            "time_start": t_start,
+                            "time_end": t_end,
+                            "subject": subject.strip(),
+                            "room": room.strip(),
+                            "teacher": teacher.strip(),
+                        })
+                continue
+
+            first_cell = cells[0]
+            rowspan = first_cell.get("rowspan")
+            if rowspan:
+                try:
+                    current_rowspan = int(rowspan) - 1
+                except ValueError:
+                    current_rowspan = 0
+                consumed_rows = current_rowspan
+
+                date_text = texts[1] if len(texts) > 1 else texts[0]
+                m = re.search(r"(\d{2}\.\d{2}\.\d{4})", date_text)
                 if m:
-                    parts = line.split(m.group(0))
-                    schedule.append({
-                        "day": current_day,
-                        "time_start": m.group(1).replace(".", ":"),
-                        "time_end": m.group(2).replace(".", ":"),
-                        "subject": parts[0].strip() if parts else "",
-                        "room": "",
-                    })
+                    try:
+                        dt = datetime.strptime(m.group(1), "%d.%m.%Y")
+                        current_date = dt
+                        current_day_name = [
+                            "понедельник", "вторник", "среда",
+                            "четверг", "пятница", "суббота", "воскресенье"
+                        ][dt.weekday()]
+                    except ValueError:
+                        pass
+
+                slot_text = texts[2] if len(texts) > 2 else ""
+                slot_text = slot_text.strip().upper().replace(".", "")
+                if slot_text in SLOT_TIMES:
+                    t_start, t_end = SLOT_TIMES[slot_text]
+                    subject = texts[5] if len(texts) > 5 else ""
+                    room = texts[4] if len(texts) > 4 else ""
+                    teacher = texts[6] if len(texts) > 6 else ""
+                    if subject and subject.strip():
+                        schedule.append({
+                            "day": current_day_name,
+                            "date": current_date,
+                            "time_start": t_start,
+                            "time_end": t_end,
+                            "subject": subject.strip(),
+                            "room": room.strip(),
+                            "teacher": teacher.strip(),
+                        })
+
         return schedule
 
 
 def generate_ics(schedule, faculty_name="", course_name=""):
     now = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    monday = get_current_week_monday()
 
     lines = [
         "BEGIN:VCALENDAR", "VERSION:2.0",
@@ -190,11 +230,9 @@ def generate_ics(schedule, faculty_name="", course_name=""):
     ]
 
     for lesson in schedule:
-        day_num = DAYS_RU.get(lesson.get("day", ""))
-        if day_num is None:
+        event_date = lesson.get("date")
+        if not event_date:
             continue
-
-        event_date = monday + timedelta(days=day_num)
 
         try:
             h, m = map(int, lesson.get("time_start", "09:00").split(":"))
@@ -210,20 +248,26 @@ def generate_ics(schedule, faculty_name="", course_name=""):
 
         subject = lesson.get("subject", "Пара")
         room = lesson.get("room", "")
+        teacher = lesson.get("teacher", "")
         uid = str(uuid.uuid4())
 
-        desc = f"Аудитория: {room}\\nДень: {lesson.get('day', '').title()}" if room else f"День: {lesson.get('day', '').title()}"
+        desc_parts = []
+        if room:
+            desc_parts.append(f"Аудитория: {room}")
+        if teacher:
+            desc_parts.append(f"Преподаватель: {teacher}")
+        desc = "\\n".join(desc_parts) if desc_parts else ""
 
         lines.extend([
             "BEGIN:VEVENT",
             f"DTSTART:{start_dt.strftime('%Y%m%dT%H%M%S')}",
             f"DTEND:{end_dt.strftime('%Y%m%dT%H%M%S')}",
-            "RRULE:FREQ=WEEKLY",
             f"UID:{uid}", f"DTSTAMP:{now}",
             f"SUMMARY:{escape_ics(subject)}",
-            f"DESCRIPTION:{escape_ics(desc)}",
         ])
 
+        if desc:
+            lines.append(f"DESCRIPTION:{escape_ics(desc)}")
         if room:
             lines.append(f"LOCATION:{escape_ics(room)}")
 
@@ -261,6 +305,9 @@ button:hover{opacity:.9}
 .copy-btn:hover{background:rgba(255,255,255,.1)}
 .help{margin-top:16px;font-size:13px;color:#9a9abf;line-height:1.7}
 .help b{color:#e0e0e0}
+.msg{margin-top:12px;padding:12px;border-radius:8px;font-size:13px}
+.msg-ok{background:rgba(56,239,125,.1);border:1px solid rgba(56,239,125,.3);color:#38ef7d}
+.msg-err{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
 </style>
 </head>
 <body>
@@ -299,7 +346,7 @@ button:hover{opacity:.9}
 1. Откройте calendar.google.com<br>
 2. Слева нажмите «+» → «СbindParam из URL»<br>
 3. Вставьте ссылку<br><br>
-Расписание обновляется <b>автоматически</b> каждую неделю.
+Расписание обновляется <b>автоматически</b> при каждом запросе.
 </div>
 </div>
 </div>
@@ -332,9 +379,7 @@ def ics_feed(faculty, course):
     if not parser.login():
         return Response("Authentication failed", status=401)
 
-    schedule = parser.get_schedule(faculty, course)
-    if not schedule:
-        return Response("Schedule not found", status=404)
+    schedule, meta = parser.get_schedule(faculty, course)
 
     faculty_name = FACULTIES.get(faculty, faculty)
     course_name = COURSES.get(course, course)
