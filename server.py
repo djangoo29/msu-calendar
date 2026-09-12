@@ -347,16 +347,6 @@ button:hover{opacity:.9}
 <h3>Ссылка для календаря:</h3>
 <div class="url-box" id="url"></div>
 <button class="copy-btn" onclick="copy()">Копировать ссылку</button>
-<div class="help">
-<b>Apple Calendar:</b><br>
-1. Скопируйте ссылку<br>
-2. На iPhone: Настройки → Почта → Учётные записи → Добавить учётную запись → Другое<br>
-3. Вставьте ссылку в поле «URL»<br><br>
-<b>Google Calendar:</b><br>
-1. Откройте calendar.google.com<br>
-2. Слева нажмите «+» → «СbindParam из URL»<br>
-3. Вставьте ссылку<br><br>
-Расписание обновляется <b>автоматически</b> при каждом запросе.
 </div>
 </div>
 </div>
