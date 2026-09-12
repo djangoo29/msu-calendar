@@ -157,7 +157,8 @@ class TimetableParser:
                 consumed_rows -= 1
                 slot_text = texts[0].strip().upper().replace(".", "") if texts else ""
                 if slot_text in SLOT_TIMES:
-                    t_start, t_end = SLOT_TIMES[slot_text]
+                    time_text = texts[1] if len(texts) > 1 else ""
+                    t_start, t_end = self._parse_time_range(time_text)
                     subject = texts[3] if len(texts) > 3 else ""
                     room = texts[2] if len(texts) > 2 else ""
                     teacher = texts[4] if len(texts) > 4 else ""
@@ -193,7 +194,8 @@ class TimetableParser:
 
                 slot_text = texts[2].strip().upper().replace(".", "") if len(texts) > 2 else ""
                 if slot_text in SLOT_TIMES:
-                    t_start, t_end = SLOT_TIMES[slot_text]
+                    time_text = texts[3] if len(texts) > 3 else ""
+                    t_start, t_end = self._parse_time_range(time_text)
                     subject = texts[5] if len(texts) > 5 else ""
                     room = texts[4] if len(texts) > 4 else ""
                     teacher = texts[6] if len(texts) > 6 else ""
@@ -206,6 +208,12 @@ class TimetableParser:
                         })
 
         return schedule
+
+    def _parse_time_range(self, text):
+        m = re.search(r"(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})", text)
+        if m:
+            return m.group(1), m.group(2)
+        return "09:00", "10:30"
                     subject = parts[0].strip() if parts else ""
                     schedule.append({
                         "day": current_day,

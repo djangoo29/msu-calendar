@@ -48,8 +48,8 @@ COURSES = {"1": "1 курс", "2": "2 курс", "3": "3 курс", "4": "4 ку
 SLOT_TIMES = {
     "I": ("09:00", "10:20"),
     "II": ("10:30", "11:50"),
-    "III": ("12:00", "13:20"),
-    "IV": ("14:00", "15:20"),
+    "III": ("12:20", "13:40"),
+    "IV": ("13:50", "15:10"),
     "V": ("15:30", "16:50"),
     "VI": ("17:00", "18:20"),
 }
@@ -168,7 +168,8 @@ class TimetableParser:
                 slot_text = texts[0] if texts else ""
                 slot_text = slot_text.strip().upper().replace(".", "")
                 if slot_text in SLOT_TIMES:
-                    t_start, t_end = SLOT_TIMES[slot_text]
+                    time_text = texts[1] if len(texts) > 1 else ""
+                    t_start, t_end = self._parse_time_range(time_text)
                     subject = texts[3] if len(texts) > 3 else ""
                     room = texts[2] if len(texts) > 2 else ""
                     teacher = texts[4] if len(texts) > 4 else ""
@@ -209,7 +210,8 @@ class TimetableParser:
                 slot_text = texts[2] if len(texts) > 2 else ""
                 slot_text = slot_text.strip().upper().replace(".", "")
                 if slot_text in SLOT_TIMES:
-                    t_start, t_end = SLOT_TIMES[slot_text]
+                    time_text = texts[3] if len(texts) > 3 else ""
+                    t_start, t_end = self._parse_time_range(time_text)
                     subject = texts[5] if len(texts) > 5 else ""
                     room = texts[4] if len(texts) > 4 else ""
                     teacher = texts[6] if len(texts) > 6 else ""
@@ -225,6 +227,12 @@ class TimetableParser:
                         })
 
         return schedule
+
+    def _parse_time_range(self, text):
+        m = re.search(r"(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})", text)
+        if m:
+            return m.group(1), m.group(2)
+        return "09:00", "10:30"
 
 
 def generate_ics(schedule, faculty_name="", course_name=""):
