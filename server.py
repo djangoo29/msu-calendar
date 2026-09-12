@@ -63,7 +63,11 @@ def get_current_week_monday():
 def escape_ics(text):
     if not text:
         return ""
-    return text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+    text = text.replace("\\", "\\\\")
+    text = text.replace(";", "\\;")
+    text = text.replace(",", "\\,")
+    text = text.replace("\n", "\\n")
+    return text
 
 
 class TimetableParser:
@@ -225,6 +229,7 @@ def generate_ics(schedule, faculty_name="", course_name=""):
         "BEGIN:VCALENDAR", "VERSION:2.0",
         "PRODID:-//MSU Timetable//Cloud//RU",
         "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+        "X-WR-CALSCALE:UTF-8",
         f"X-WR-CALNAME:Расписание МГУ - {faculty_name} {course_name}",
         "X-WR-TIMEZONE:Asia/Baku",
     ]
@@ -256,7 +261,7 @@ def generate_ics(schedule, faculty_name="", course_name=""):
             desc_parts.append(f"Аудитория: {room}")
         if teacher:
             desc_parts.append(f"Преподаватель: {teacher}")
-        desc = "\\n".join(desc_parts) if desc_parts else ""
+        desc = "\n".join(desc_parts) if desc_parts else ""
 
         lines.extend([
             "BEGIN:VEVENT",
@@ -385,8 +390,10 @@ def ics_feed(faculty, course):
     course_name = COURSES.get(course, course)
     ics_content = generate_ics(schedule, faculty_name, course_name)
 
+    ics_bytes = ics_content.encode("utf-8")
+
     return Response(
-        ics_content,
+        ics_bytes,
         mimetype="text/calendar; charset=utf-8",
         headers={"Content-Disposition": f'inline; filename="msu_{faculty}_{course}.ics"'},
     )
