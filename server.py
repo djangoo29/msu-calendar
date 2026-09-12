@@ -86,6 +86,7 @@ class TimetableParser:
             f"{BASE_URL}/index.php",
             data={"username": self.username, "password": self.password, "submit": "Войти"},
         )
+        r.encoding = "utf-8"
         self.session.get(f"{BASE_URL}/main.php")
         return r.url.endswith("main.php") or "main.php" in r.text.lower()
 
@@ -95,11 +96,13 @@ class TimetableParser:
             data={"pagenum": "tdedu_graph_common"},
             headers=self.headers,
         )
+        r.encoding = "utf-8"
         form_path = r.text.strip()
         if not form_path:
             return [], {}
 
         r2 = self.session.get(f"{BASE_URL}/{form_path}", headers=self.headers)
+        r2.encoding = "utf-8"
         soup = BeautifulSoup(r2.text, "html.parser")
 
         btn = soup.find("input", {"id": "repGraph"})
@@ -113,6 +116,7 @@ class TimetableParser:
             data={"prof_id": faculty, "course_id": course, "inf": prof_inf},
             headers=self.headers,
         )
+        r3.encoding = "utf-8"
         soup3 = BeautifulSoup(r3.text, "html.parser")
         week_select = soup3.find("select", {"id": "repWeekId"})
         week_id = "0"
@@ -133,6 +137,7 @@ class TimetableParser:
             data={"profid": faculty, "courseid": course, "weekid": week_id, "inf": inf},
             headers=self.headers,
         )
+        r4.encoding = "utf-8"
 
         schedule = self._parse_tbl_report(r4.text)
         return schedule, meta
