@@ -115,22 +115,26 @@ class TimetableParser:
         )
         soup3 = BeautifulSoup(r3.text, "html.parser")
         week_select = soup3.find("select", {"id": "repWeekId"})
-        week_id = "0"
+
+        week_ids = []
         if week_select:
             for o in week_select.find_all("option"):
                 if o.get("value") and o["value"] != "0":
-                    week_id = o["value"]
+                    week_ids.append((o["value"], o.text.strip()))
 
-        if week_id == "0":
+        if not week_ids:
             return []
 
-        r4 = self.session.post(
-            f"{BASE_URL}/process.php",
-            data={"profid": faculty, "courseid": course, "weekid": week_id, "inf": inf},
-            headers=self.headers,
-        )
+        schedule = []
+        for wid, wlabel in week_ids:
+            r4 = self.session.post(
+                f"{BASE_URL}/process.php",
+                data={"profid": faculty, "courseid": course, "weekid": wid, "inf": inf},
+                headers=self.headers,
+            )
+            schedule.extend(self._parse_tbl_report(r4.text))
 
-        return self._parse_tbl_report(r4.text)
+        return schedule
 
     def _parse_tbl_report(self, html):
         soup = BeautifulSoup(html, "html.parser")
