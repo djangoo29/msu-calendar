@@ -126,7 +126,6 @@ class TimetableParser:
                 if o.get("value") and o["value"] != "0":
                     week_id = o["value"]
                     week_label = o.text.strip()
-                    break
 
         meta = {"week_id": week_id, "week_label": week_label}
         if week_id == "0":

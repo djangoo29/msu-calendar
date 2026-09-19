@@ -120,7 +120,6 @@ class TimetableParser:
             for o in week_select.find_all("option"):
                 if o.get("value") and o["value"] != "0":
                     week_id = o["value"]
-                    break
 
         if week_id == "0":
             return []
